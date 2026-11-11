@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mappa Interattiva di Imola</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<style>
+  * { box-sizing: border-box; }
+  html, body { 
+    margin: 0; 
+    padding: 0; 
+    width: 100%; 
+    height: 100%; 
+    background: #1e293b; 
+    color: #f8fafc; 
+    font-family: system-ui, -apple-system, sans-serif; 
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    padding: 10px 20px; 
+    background: #0f172a; 
+    border-bottom: 1px solid #334155;
+    width: 100%;
+    flex-shrink: 0;
+    gap: 12px;
+    z-index: 1000;
+    flex-wrap: wrap;
+  }
+  .history-slider-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #cbd5e1;
+    background: #1e293b;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #334155;
+  }
+  .history-slider-container input {
+    cursor: pointer;
+  }
+  .search-container {
+    position: relative;
+    display: flex;
+    gap: 6px;
+  }
+  .search-box {
+    padding: 8px 12px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #fff;
+    border-radius: 6px;
+    font-size: 13px;
+    width: 180px;
+    outline: none;
+  }
+  .reset-btn {
+    background: #ef4444;
+    color: #fff;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.2s;
+  }
+  .reset-btn:hover { background: #dc2626; }
+  .search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    margin-top: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    display: none;
+    z-index: 2000;
+  }
+  .search-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 1px solid #1e293b;
+  }
+  .search-item:hover { background: #3b82f6; }
+  .filters {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .filter-btn {
+    background: #334155;
+    color: #fff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.2s;
+  }
+  .filter-btn:hover, .filter-btn.active { background: #3b82f6; }
+  #map { 
+    width: 100vw; 
+    flex-grow: 1;
+    z-index: 1;
+    background: #1e293b;
+  }
+  .map-footer {
+    background: #0f172a;
+    color: #94a3b8;
+    font-size: 11px;
+    text-align: center;
+    padding: 6px;
+    border-top: 1px solid #334155;
+    flex-shrink: 0;
+    z-index: 1000;
+  }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+    background: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #334155;
+  }
+  .leaflet-popup-content img {
+    border-radius: 4px;
+    margin-top: 6px;
+    max-width: 100%;
+    height: auto;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div style="font-size: 15px; font-weight: bold; color: #60a5fa;" id="txtTitle">Memoria Storica di Imola</div>
+  
+  <div class="history-slider-container">
+    <label for="opacitySlider" id="txtSlider">Confronto Satellitare:</label>
+    <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0" oninput="cambiaOpacita(this.value)">
+  </div>
+
+  <div class="search-container">
+    <input type="text" id="searchInput" class="search-box" placeholder="Cerca luogo..." oninput="cercaLuogo()">
+    <button class="reset-btn" type="button" onclick="azzeraFiltri()" id="txtReset">Azzera</button>
+    <div id="resultsList" class="search-results"></div>
+  </div>
+
+  <div class="filters">
+    <button id="btnTutti" class="filter-btn" onclick="impostaCategoria('tutti', this)">Tutti</button>
+    <button class="filter-btn" onclick="impostaCategoria('cultura', this)" id="catCulture">Cultura</button>
+    <button class="filter-btn" onclick="impostaCategoria('natura', this)" id="catNature">Parchi</button>
+    <button class="filter-btn" onclick="impostaCategoria('personali', this)" id="catPersonal">Personali</button>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div class="map-footer" id="txtFooter">
+  Progetto Memoria Storica di Imola
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+  const isEn = window.location.pathname.includes('/en/') || document.documentElement.lang.startsWith('en');
+  const currentLang = isEn ? 'en' : 'it';
+
+  const i18n = {
+    it: {
+      title: "Memoria Storica di Imola",
+      slider: "Confronto Satellitare:",
+      searchPlaceholder: "Cerca luogo...",
+      reset: "Azzera",
+      tutti: "Tutti",
+      cultura: "Cultura",
+      natura: "Parchi",
+      personali: "Personali",
+      footer: "Progetto Memoria Storica di Imola"
+    },
+    en: {
+      title: "Historical Memory of Imola",
+      slider: "Satellite Comparison:",
+      searchPlaceholder: "Search place...",
+      reset: "Reset",
+      tutti: "All",
+      cultura: "Culture",
+      natura: "Parks",
+      personali: "Personal",
+      footer: "Historical Memory Project of Imola"
+    }
+  };
+
+  document.getElementById('txtTitle').innerText = i18n[currentLang].title;
+  document.getElementById('txtSlider').innerText = i18n[currentLang].slider;
+  document.getElementById('searchInput').placeholder = i18n[currentLang].searchPlaceholder;
+  document.getElementById('txtReset').innerText = i18n[currentLang].reset;
+  document.getElementById('btnTutti').innerText = i18n[currentLang].tutti;
+  document.getElementById('catCulture').innerText = i18n[currentLang].cultura;
+  document.getElementById('catNature').innerText = i18n[currentLang].natura;
+  document.getElementById('catPersonal').innerText = i18n[currentLang].personali;
+  document.getElementById('txtFooter').innerText = i18n[currentLang].footer;
+
+  var imolaBounds = L.latLngBounds(
+    L.latLng(44.2500, 11.6000), 
+    L.latLng(44.4500, 11.8500)  
+  );
+
+  var map = L.map('map', {
+    maxBounds: imolaBounds,
+    maxBoundsViscosity: 0.8,
+    minZoom: 12,
+    maxZoom: 18
+  }).setView([44.3533, 11.7143], 14);
+
+  var osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri',
+    opacity: 0
+  }).addTo(map);
+
+  function cambiaOpacita(valore) {
+    if (satelliteLayer) {
+      satelliteLayer.setOpacity(valore);
+    }
+  }
+
+  window.addEventListener('resize', function() { map.invalidateSize(); });
+  setTimeout(function(){ map.invalidateSize(); }, 300);
+
+  var luoghi = [
+    { 
+      id: 1, lat: 44.3541, lng: 11.7118, cat: 'cultura', 
+      titolo: { it: 'Rocca Sforzesca', en: 'Sforza Castle' }, 
+      desc: { 
+        it: '<b>Epoca:</b> Rinascimento (XV sec.)<br>Fortezza e presidio strategico nel cuore di Imola.<br><img src="https://upload.wikimedia.org/wikipedia/commons/e/e0/Imola_Rocca_Sforzesca.jpg">', 
+        en: '<b>Period:</b> Renaissance (15th c.)<br>Fortress and strategic stronghold in the heart of Imola.<br><img src="https://upload.wikimedia.org/wikipedia/commons/e/e0/Imola_Rocca_Sforzesca.jpg">' 
+      }
+    },
+    { 
+      id: 2, lat: 44.3530, lng: 11.7146, cat: 'cultura', 
+      titolo: { it: 'Palazzo Tozzoni', en: 'Tozzoni Palace' }, 
+      desc: { 
+        it: '<b>Epoca:</b> XVIII Secolo<br>Dimora nobiliare e testimonianza della vita cittadina.<br><img src="https://upload.wikimedia.org/wikipedia/commons/3/36/Palazzo_Tozzoni_Imola.jpg">', 
+        en: '<b>Period:</b> 18th Century<br>Noble residence and historical witness of civic life.<br><img src="https://upload.wikimedia.org/wikipedia/commons/3/36/Palazzo_Tozzoni_Imola.jpg">' 
+      }
+    },
+    { 
+      id: 3, lat: 44.3582, lng: 11.7168, cat: 'cultura', 
+      titolo: { it: 'Teatro Stignani', en: 'Stignani Theater' }, 
+      desc: { 
+        it: '<b>Epoca:</b> Neoclassico<br>Storico teatro comunale imolese.', 
+        en: '<b>Period:</b> Neoclassical<br>Historic municipal theater of Imola.' 
+      }
+    },
+    { 
+      id: 4, lat: 44.3411, lng: 11.7094, cat: 'natura', 
+      titolo: { it: 'Autodromo Enzo e Dino Ferrari', en: 'Enzo and Dino Ferrari Racetrack' }, 
+      desc: { 
+        it: '<b>Epoca:</b> Moderno (1953)<br>Circuito storico integrato nel verde.', 
+        en: '<b>Period:</b> Modern (1953)<br>Historic racing circuit integrated into the park.' 
+      }
+    },
+    { 
+      id: 5, lat: 44.3385, lng: 11.7125, cat: 'natura', 
+      titolo: { it: 'Parco delle Acque Minerali', en: 'Mineral Waters Park' }, 
+      desc: { 
+        it: '<b>Epoca:</b> Storico / Ambientale<br>Polmone verde lungo il Santerno.', 
+        en: '<b>Period:</b> Historical / Environmental<br>Green lung along the Santerno river.' 
+      }
+    },
+    { 
+      id: 7, lat: 44.3532, lng: 11.6992, cat: 'personali', 
+      titolo: { it: 'Casa Bau', en: 'Casa Bau' }, 
+      desc: { 
+        it: '<b>Memoria Diffusa:</b><br>Casa di Bau e Ciciufoni. Luogo del cuore.', 
+        en: '<b>Shared Memory:</b><br>House of Bau and Ciciufoni. A place of the heart.' 
+      }
+    }
+  ];
+
+  var markersMap = {};
+  var markersLayer = L.layerGroup().addTo(map);
+  var categoriaCorrente = '';
+
+  function disegnaMappa() {
+    markersLayer.clearLayers();
+    var txt = document.getElementById('searchInput').value.toLowerCase();
+
+    if (categoriaCorrente === '' && txt === '') return;
+
+    luoghi.forEach(function(item) {
+      var titoloCorrente = item.titolo[currentLang] || item.titolo.it;
+      var descCorrente = item.desc[currentLang] || item.desc.it;
+
+      var rispecchiaCategoria = (categoriaCorrente === 'tutti' || (categoriaCorrente !== '' && item.cat === categoriaCorrente) || (categoriaCorrente === '' && txt !== ''));
+      var rispecchiaTesto = (txt === '' || titoloCorrente.toLowerCase().includes(txt) || descCorrente.toLowerCase().includes(txt));
+
+      if (rispecchiaCategoria && rispecchiaTesto) {
+        var marker = L.marker([item.lat, item.lng]);
+        marker.bindPopup('<b>' + titoloCorrente + '</b><br>' + descCorrente);
+        markersLayer.addLayer(marker);
+        markersMap[item.id] = marker;
+      }
+    });
+  }
+
+  function vaiALuogo(id) {
+    var punto = luoghi.find(l => l.id === id);
+    if (punto) {
+      map.flyTo([punto.lat, punto.lng], 16, { duration: 1.2 });
+      if (markersMap[id]) markersMap[id].openPopup();
+      document.getElementById('resultsList').style.display = 'none';
+    }
+  }
+
+  function cercaLuogo() {
+    var txt = document.getElementById('searchInput').value.toLowerCase();
+    var list = document.getElementById('resultsList');
+    list.innerHTML = '';
+    disegnaMappa(); 
+
+    if (txt.length < 1) {
+      list.style.display = 'none';
+      return;
+    }
+
+    var filtrati = luoghi.filter(l => {
+      var t = (l.titolo[currentLang] || l.titolo.it).toLowerCase();
+      var d = (l.desc[currentLang] || l.desc.it).toLowerCase();
+      return t.includes(txt) || d.includes(txt);
+    });
+    
+    if (filtrati.length > 0) {
+      list.style.display = 'block';
+      filtrati.forEach(function(item) {
+        var div = document.createElement('div');
+        div.className = 'search-item';
+        div.innerHTML = '<strong>' + (item.titolo[currentLang] || item.titolo.it) + '</strong>';
+        div.onclick = function() { vaiALuogo(item.id); };
+        list.appendChild(div);
+      });
+    } else {
+      list.style.display = 'none';
+    }
+  }
+
+  function impostaCategoria(cat, btn) {
+    categoriaCorrente = cat;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    disegnaMappa();
+  }
+
+  function azzeraFiltri() {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('resultsList').style.display = 'none';
+    categoriaCorrente = ''; 
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('opacitySlider').value = 0;
+    cambiaOpacita(0);
+    disegnaMappa();
+  }
+</script>
+
+</body>
+</html>
