@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Simulazione Termodinamica & Stati della Materia</title>
+<style>
+  * { box-sizing: border-box; }
+  body { 
+    margin: 0; 
+    padding: 10px; 
+    background: #1e293b; 
+    color: #fff; 
+    font-family: system-ui, -apple-system, sans-serif; 
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+  .header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    padding: 12px 20px; 
+    background: #0f172a; 
+    border-radius: 8px 8px 0 0; 
+    width: 720px; 
+    border: 1px solid #334155;
+    border-bottom: none;
+  }
+  .stats {
+    display: flex;
+    gap: 20px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+  input[type=range] { cursor: pointer; }
+  canvas { 
+    border: 1px solid #334155; 
+    border-radius: 0 0 8px 8px; 
+    background: #020617; 
+    display: block; 
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="stats">
+    <div id="status">Stato: Solido</div>
+    <div id="pressure" style="color: #38bdf8;">Pressione: 0.0 Atm</div>
+  </div>
+  <div class="controls">
+    <span>❄️ 0°C</span>
+    <input type="range" id="tempRange" min="5" max="300" value="40">
+    <span>300°C 🔥</span>
+  </div>
+</div>
+
+<canvas id="cvs" width="720" height="420"></canvas>
+
+<script>
+var canvas = document.getElementById('cvs');
+var ctx = canvas.getContext('2d');
+
+var particles = [];
+var numParticles = 90;
+var gravity = 0.15;
+var wallCollisions = 0;
+
+// Inizializzazione molecole
+for (var i = 0; i < numParticles; i++) {
+  particles.push({
+    x: Math.random() * (canvas.width - 40) + 20,
+    y: canvas.height - 50 - (Math.random() * 100),
+    vx: (Math.random() - 0.5) * 2,
+    vy: (Math.random() - 0.5) * 2,
+    radius: 7
+  });
+}
+
+var tempSlider = document.getElementById('tempRange');
+
+// Timer per calcolare la pressione basata sugli urti alle pareti
+setInterval(function() {
+  var pAtm = (wallCollisions * (tempSlider.value / 100) * 0.05).toFixed(2);
+  document.getElementById('pressure').textContent = "Pressione: " + pAtm + " Atm";
+  wallCollisions = 0;
+}, 500);
+
+function update() {
+  var temp = parseFloat(tempSlider.value);
+  var tempFactor = temp / 100;
+
+  // Aggiornamento testo stato
+  var statusElem = document.getElementById('status');
+  if (temp < 60) {
+    statusElem.textContent = "Stato: Solido ❄️ (" + temp + "°C)";
+    statusElem.style.color = "#93c5fd";
+  } else if (temp < 170) {
+    statusElem.textContent = "Stato: Liquido 💧 (" + temp + "°C)";
+    statusElem.style.color = "#60a5fa";
+  } else {
+    statusElem.textContent = "Stato: Aeriforme / Gas 🔥 (" + temp + "°C)";
+    statusElem.style.color = "#f87171";
+  }
+
+  // Sfondo dinamico scuro in base alla temperatura
+  var r = Math.floor(Math.min(40, temp * 0.15));
+  var b = Math.floor(Math.max(10, 40 - temp * 0.15));
+  ctx.fillStyle = "rgb(" + r + ", 10, " + (23 + b) + ")";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Aggiornamento fisica particelle
+  for (var i = 0; i < particles.length; i++) {
+    var p = particles[i];
+
+    // Gravità dinamica: forte a basse temperature (solido/liquido), trascurabile ad alte (gas)
+    var currentGravity = Math.max(0, gravity * (1 - (temp / 180)));
+    p.vy += currentGravity;
+
+    // Movimento
+    p.x += p.vx * tempFactor;
+    p.y += p.vy * tempFactor;
+
+    // Urti con le pareti
+    if (p.x - p.radius < 0) { p.x = p.radius; p.vx *= -0.85; wallCollisions++; }
+    if (p.x + p.radius > canvas.width) { p.x = canvas.width - p.radius; p.vx *= -0.85; wallCollisions++; }
+    if (p.y - p.radius < 0) { p.y = p.radius; p.vy *= -0.85; wallCollisions++; }
+    if (p.y + p.radius > canvas.height) { p.y = canvas.height - p.radius; p.vy *= -0.85; wallCollisions++; }
+
+    // Collisioni ed attrazione tra molecole (Fisica elastica inter-particellare)
+    for (var j = i + 1; j < particles.length; j++) {
+      var p2 = particles[j];
+      var dx = p2.x - p.x;
+      var dy = p2.y - p.y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      var minDist = p.radius + p2.radius;
+
+      if (dist < minDist) {
+        // Sovrapposizione evitata
+        var overlap = minDist - dist;
+        var nx = dx / dist;
+        var ny = dy / dist;
+
+        p.x -= nx * overlap * 0.5;
+        p.y -= ny * overlap * 0.5;
+        p2.x += nx * overlap * 0.5;
+        p2.y += ny * overlap * 0.5;
+
+        // Scambio impulsi/rimbalzo
+        var kx = p.vx - p2.vx;
+        var ky = p.vy - p2.vy;
+        var p_impact = 2 * (nx * kx + ny * ky) / 2;
+
+        p.vx -= p_impact * nx;
+        p.vy -= p_impact * ny;
+        p2.vx += p_impact * nx;
+        p2.vy += p_impact * ny;
+      }
+    }
+
+    // Disegno molecola
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    
+    var hue = Math.max(0, 220 - (temp * 0.7)); // Blu (freddo) -> Rosso (caldo)
+    ctx.fillStyle = "hsl(" + hue + ", 90%, 60%)";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,255,255,0.6)";
+    ctx.stroke();
+  }
+
+  requestAnimationFrame(update);
+}
+
+update();
+</script>
+
+</body>
+</html>
